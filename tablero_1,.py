@@ -12,7 +12,7 @@ import base64
 
 # ----------------------- CARGA Y PREPARACIÓN DE DATOS -----------------------
 
-df = pd.read_csv("C:/Users/Usuario/Downloads/datos.csv")
+df = pd.read_csv("data/datos.csv")
 df["order_purchase_timestamp"] = pd.to_datetime(df["order_purchase_timestamp"])
 df["order_month"] = df["order_purchase_timestamp"].dt.to_period("M").dt.to_timestamp()
 df["order_date"] = df["order_purchase_timestamp"].dt.date
