@@ -473,7 +473,7 @@ def actualizar_graficos(productos, fecha_inicio, fecha_fin):
         )
         pedidos_fig.update_layout(
             xaxis_title="Mes",
-            yaxis_title="Ventas ($)",
+            yaxis_title="Cantidad Vendida ($)",
             legend_title="Categoría de Producto"
         )
     else:
