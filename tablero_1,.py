@@ -175,6 +175,8 @@ app.layout = html.Div(
                         html.Br(),
                         dcc.Graph(id="line-chart"),
                         html.Br(),
+                        dcc.Graph(id="grafico-pedidos-tiempo"),
+                        html.Br(),
                         dbc.Row(
                             [
                                 dbc.Col(dcc.Graph(id="mapa-ventas"), width=6),
@@ -188,7 +190,13 @@ app.layout = html.Div(
                             ]
                         ),
                         html.Br(),
-                        dcc.Graph(id="barras-pago"),
+                        dbc.Row(
+                            [
+                                dbc.Col(dcc.Graph(id="barras-pago"), width=6),
+                                dbc.Col(dcc.Graph(id="grafico-dias-semana"), width=6),
+                            ]
+                        ),
+                        html.Br(),
                     ],
                 ),
                 dcc.Tab(
@@ -337,6 +345,8 @@ def actualizar_kpis(productos, fecha_inicio, fecha_fin):
     Output("mapa-ventas", "figure"),
     Output("barras-pago", "figure"),
     Output("tabla-por-estado", "children"),
+    Output("grafico-dias-semana", "figure"),
+    Output("grafico-pedidos-tiempo", "figure"),
     Input("producto-dropdown", "value"),
     Input("fecha-range", "start_date"),
     Input("fecha-range", "end_date"),
@@ -411,7 +421,65 @@ def actualizar_graficos(productos, fecha_inicio, fecha_fin):
     else:
         tabla_html = html.Div("No hay datos de estado y categoría disponibles.")
 
-    return line_fig, mapa_fig, barras_fig, tabla_html
+    # Gráfico de ventas por días de la semana
+    if not df_filtrado.empty:
+        df_filtrado_copy = df_filtrado.copy()
+        df_filtrado_copy["day_name"] = pd.to_datetime(df_filtrado_copy["order_purchase_timestamp"]).dt.day_name()
+        
+        # Definir orden de días
+        dias_orden = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        dias_espanol = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+        
+        ventas_por_dia = df_filtrado_copy.groupby("day_name")["payment_value"].sum().reset_index()
+        
+        # Reordenar según días de la semana
+        ventas_por_dia["day_name"] = pd.Categorical(ventas_por_dia["day_name"], categories=dias_orden, ordered=True)
+        ventas_por_dia = ventas_por_dia.sort_values("day_name")
+        
+        # Mapear a español
+        ventas_por_dia["dia_esp"] = ventas_por_dia["day_name"].map(dict(zip(dias_orden, dias_espanol)))
+        
+        dias_fig = px.bar(
+            ventas_por_dia,
+            x="dia_esp",
+            y="payment_value",
+            title="Ventas por Día de la Semana",
+            labels={"dia_esp": "Día de la Semana", "payment_value": "Ventas ($)"},
+            color="payment_value",
+            color_continuous_scale="Blues"
+        )
+        dias_fig.update_layout(
+            xaxis_tickangle=-45,
+            showlegend=False
+        )
+    else:
+        dias_fig = px.bar(title="No hay datos para mostrar")
+
+    # Gráfico de ventas en el tiempo (modificado)
+    if not df_filtrado.empty:
+        # Agrupar por mes y categoría de producto para obtener las ventas
+        ventas_tiempo = df_filtrado.groupby(["order_month", "product_category_name_english"]).agg({
+            "payment_value": "sum"
+        }).reset_index()
+        
+        pedidos_fig = px.line(
+            ventas_tiempo,
+            x="order_month",
+            y="payment_value",
+            color="product_category_name_english",
+            title="Ventas por Producto en el Tiempo",
+            labels={"order_month": "Mes", "payment_value": "Ventas ($)", "product_category_name_english": "Categoría"},
+            markers=True
+        )
+        pedidos_fig.update_layout(
+            xaxis_title="Mes",
+            yaxis_title="Ventas ($)",
+            legend_title="Categoría de Producto"
+        )
+    else:
+        pedidos_fig = px.line(title="No hay datos para mostrar")
+
+    return line_fig, mapa_fig, barras_fig, tabla_html, dias_fig, pedidos_fig
 
 
 # ----------------------- CALLBACK PYCARET -----------------------
@@ -588,5 +656,3 @@ def entrenar_modelos(n_clicks, vars_predictoras, modelo):
 
 if __name__ == "__main__":
     app.run(debug=True)
-# To run the app, save this script as `app.py` and execute it with Python.
-# Ensure you have the required libraries installed:
