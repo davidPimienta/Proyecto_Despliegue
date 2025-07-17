@@ -18,6 +18,7 @@ df["order_month"] = df["order_purchase_timestamp"].dt.to_period("M").dt.to_times
 df["order_date"] = df["order_purchase_timestamp"].dt.date
 fecha_limite = pd.to_datetime("2018-08-30")
 df = df[df["order_purchase_timestamp"] <= fecha_limite]
+
 # Crear columna delivery_time_days si es posible
 if (
     "order_delivered_customer_date" in df.columns
@@ -32,11 +33,17 @@ if (
 else:
     df["delivery_time_days"] = None
 
-# Preparación para resumen diario
-df_daily = df.groupby("order_date").agg({"payment_value": "sum"}).reset_index()
+# Preparación para resumen diario - AGREGAMOS CANTIDAD DE PRODUCTOS
+df_daily = df.groupby("order_date").agg({
+    "payment_value": "sum",
+    "order_id": "count"  # Cantidad de productos vendidos por día
+}).reset_index()
+df_daily.rename(columns={"order_id": "productos_vendidos"}, inplace=True)
 df_daily["day_of_week"] = pd.to_datetime(df_daily["order_date"]).dt.dayofweek
 df_daily["month"] = pd.to_datetime(df_daily["order_date"]).dt.month
+df_daily["day_of_month"] = pd.to_datetime(df_daily["order_date"]).dt.day
 
+# Variables predictoras - combinando variables originales y temporales
 default_predictors = [
     "price",
     "freight_value",
@@ -47,6 +54,9 @@ default_predictors = [
     "seller_state",
     "geolocation_state",
     "order_status",
+    "day_of_week",
+    "month", 
+    "day_of_month"
 ]
 
 # ----------------------- INICIALIZAR DASH APP -----------------------
@@ -204,7 +214,7 @@ app.layout = html.Div(
                     children=[
                         html.Br(),
                         html.H5(
-                            "Predicción de ventas con PyCaret",
+                            "Predicción de Cantidad de Productos Vendidos Diariamente",
                             style={"textAlign": "center"},
                         ),
                         html.Br(),
@@ -216,11 +226,21 @@ app.layout = html.Div(
                                         dcc.Dropdown(
                                             id="vars-predictoras",
                                             options=[
-                                                {"label": col, "value": col}
-                                                for col in default_predictors
+                                                {"label": "Precio", "value": "price"},
+                                                {"label": "Valor del flete", "value": "freight_value"},
+                                                {"label": "Peso del producto (g)", "value": "product_weight_g"},
+                                                {"label": "Tiempo de entrega (días)", "value": "delivery_time_days"},
+                                                {"label": "Puntuación de reseña", "value": "review_score"},
+                                                {"label": "Tipo de pago", "value": "payment_type"},
+                                                {"label": "Estado del vendedor", "value": "seller_state"},
+                                                {"label": "Estado de geolocalización", "value": "geolocation_state"},
+                                                {"label": "Estado del pedido", "value": "order_status"},
+                                                {"label": "Día de la semana", "value": "day_of_week"},
+                                                {"label": "Mes", "value": "month"},
+                                                {"label": "Día del mes", "value": "day_of_month"},
                                             ],
                                             multi=True,
-                                            value=[],
+                                            value=["price", "freight_value", "day_of_week", "month"],
                                             placeholder="Selecciona variables predictoras",
                                         ),
                                         html.Br(),
@@ -236,6 +256,10 @@ app.layout = html.Div(
                                                 {
                                                     "label": "LightGBM",
                                                     "value": "lightgbm",
+                                                },
+                                                {
+                                                    "label": "Linear Regression",
+                                                    "value": "lr",
                                                 },
                                             ],
                                             value="rf",
@@ -275,7 +299,7 @@ app.layout = html.Div(
                             },
                         ),
                         html.Br(),
-                        html.H4("Predicción vs Real", style={"textAlign": "center"}),
+                        html.H4("Predicción vs Real - Productos Vendidos Diariamente", style={"textAlign": "center"}),
                         html.Div(
                             id="grafico-predicciones", style={"textAlign": "center"}
                         ),
@@ -288,7 +312,6 @@ app.layout = html.Div(
 )
 
 # ----------------------- CALLBACKS DESCRIPTIVOS -----------------------
-
 
 @app.callback(
     Output("kpi-pedidos", "children"),
@@ -336,9 +359,7 @@ def actualizar_kpis(productos, fecha_inicio, fecha_fin):
         f"{puntaje:.2f}" if isinstance(puntaje, float) else puntaje,
     )
 
-
 # ----------------------- CALLBACK PARA GRÁFICOS -----------------------
-
 
 @app.callback(
     Output("line-chart", "figure"),
@@ -481,9 +502,7 @@ def actualizar_graficos(productos, fecha_inicio, fecha_fin):
 
     return line_fig, mapa_fig, barras_fig, tabla_html, dias_fig, pedidos_fig
 
-
-# ----------------------- CALLBACK PYCARET -----------------------
-
+# ----------------------- CALLBACK PYCARET MODIFICADO -----------------------
 
 @app.callback(
     Output("tabla-modelos", "children"),
@@ -501,7 +520,33 @@ def entrenar_modelos(n_clicks, vars_predictoras, modelo):
             "",
         )
 
-    cols_existentes = [col for col in vars_predictoras if col in df.columns]
+    # Crear dataset agregado por día para predicción
+    df_prediccion = df.groupby("order_date").agg({
+        "order_id": "count",  # Cantidad de productos vendidos por día
+        "payment_value": "sum",
+        "price": "mean",
+        "freight_value": "mean",
+        "product_weight_g": "mean",
+        "delivery_time_days": "mean",
+        "review_score": "mean"
+    }).reset_index()
+    
+    df_prediccion.rename(columns={"order_id": "productos_vendidos"}, inplace=True)
+    
+    # Agregar variables temporales
+    df_prediccion["order_date"] = pd.to_datetime(df_prediccion["order_date"])
+    df_prediccion["day_of_week"] = df_prediccion["order_date"].dt.dayofweek
+    df_prediccion["month"] = df_prediccion["order_date"].dt.month
+    df_prediccion["day_of_month"] = df_prediccion["order_date"].dt.day
+    
+    # Para variables categóricas, usar la moda (valor más frecuente) por día
+    categorical_vars = ["payment_type", "seller_state", "geolocation_state", "order_status"]
+    for var in categorical_vars:
+        if var in df.columns:
+            df_prediccion[var] = df.groupby("order_date")[var].apply(lambda x: x.mode().iloc[0] if not x.mode().empty else "unknown").values
+    
+    # Verificar que las variables seleccionadas existen
+    cols_existentes = [col for col in vars_predictoras if col in df_prediccion.columns]
     if not cols_existentes:
         return (
             "Ninguna de las variables seleccionadas existe en el DataFrame.",
@@ -509,19 +554,22 @@ def entrenar_modelos(n_clicks, vars_predictoras, modelo):
             "",
         )
 
-    cols_req = cols_existentes + ["payment_value", "order_purchase_timestamp"]
-    df_model = df[cols_req].dropna().copy()
+    # Preparar datos para el modelo
+    cols_req = cols_existentes + ["productos_vendidos"]
+    df_model = df_prediccion[cols_req].dropna().copy()
 
     if df_model.empty:
         return "No hay datos para entrenar con esas variables.", "", ""
 
-    df_model["order_year_month"] = df_model["order_purchase_timestamp"].dt.to_period(
-        "M"
-    )
-    ultimo_mes = df_model["order_year_month"].max()
+    if len(df_model) < 30:
+        return "Se necesitan al menos 30 días de datos para entrenar el modelo.", "", ""
 
-    train_df = df_model[df_model["order_year_month"] < ultimo_mes]
-    test_df = df_model[df_model["order_year_month"] == ultimo_mes]
+    # División temporal: usar últimos 7 días para test
+    df_model = df_model.sort_values("order_date") if "order_date" in df_model.columns else df_model
+    test_size = min(7, len(df_model) // 4)  # Usar 7 días o 25% de los datos para test
+    
+    train_df = df_model.iloc[:-test_size]
+    test_df = df_model.iloc[-test_size:]
 
     if train_df.empty or test_df.empty:
         return (
@@ -530,129 +578,173 @@ def entrenar_modelos(n_clicks, vars_predictoras, modelo):
             "",
         )
 
-    setup(
-        data=train_df[cols_existentes + ["payment_value"]],
-        target="payment_value",
-        session_id=123,
-        fold_strategy="timeseries",
-        data_split_shuffle=False,
-        fold_shuffle=False,
-        verbose=False,
-    )
-    model = create_model(modelo)
-
-    # Predicciones sobre test
-    pred = predict_model(model, data=test_df[cols_existentes + ["payment_value"]])
-    y_true = pred["payment_value"].values
-    y_pred = pred["prediction_label"].values
-
-    mae = mean_absolute_error(y_true, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    r2 = r2_score(y_true, y_pred)
-
-    # KPIs como tarjetas
-    kpi_cards = dbc.Row(
-        [
-            dbc.Col(
-                dbc.Card(
-                    dbc.CardBody(
-                        [
-                            html.H5("MAE", className="card-title"),
-                            html.H2(f"{mae:.4f}", className="card-text"),
-                        ]
-                    ),
-                    color="primary",
-                    inverse=True,
-                ),
-                width=4,
-            ),
-            dbc.Col(
-                dbc.Card(
-                    dbc.CardBody(
-                        [
-                            html.H5("RMSE", className="card-title"),
-                            html.H2(f"{rmse:.4f}", className="card-text"),
-                        ]
-                    ),
-                    color="warning",
-                    inverse=True,
-                ),
-                width=4,
-            ),
-            dbc.Col(
-                dbc.Card(
-                    dbc.CardBody(
-                        [
-                            html.H5("R2", className="card-title"),
-                            html.H2(f"{r2:.4f}", className="card-text"),
-                        ]
-                    ),
-                    color="success",
-                    inverse=True,
-                ),
-                width=4,
-            ),
-        ],
-        className="mb-4",
-        justify="center",
-    )
-
-    # Importancia de variables
-    plot_model(model, plot="feature", save=True)
-    feature_img_path = "Feature Importance.png"
-    if os.path.exists(feature_img_path):
-        with open(feature_img_path, "rb") as f:
-            encoded_feature = base64.b64encode(f.read()).decode()
-        importancia_img = html.Img(
-            src="data:image/png;base64," + encoded_feature,
-            ###           style={"width": "60%", "maxWidth": "500px", "margin": "10px"},
-            alt="Importancia Variables",
+    try:
+        # Configurar PyCaret para predicción de cantidad de productos vendidos
+        setup(
+            data=train_df,
+            target="productos_vendidos",
+            session_id=123,
+            fold_strategy="timeseries" if len(train_df) > 10 else "kfold",
+            data_split_shuffle=False,
+            fold_shuffle=False,
+            verbose=False,
+            train_size=0.8
         )
-        os.remove(feature_img_path)
-    else:
-        importancia_img = html.Div("No se pudo generar gráfico de importancia.")
+        
+        # Crear y entrenar el modelo
+        model_trained = create_model(modelo)
 
-    # Gráfico residual
-    plot_model(model, plot="residuals", save=True)
-    residual_img_path = "Residuals.png"
-    if os.path.exists(residual_img_path):
-        with open(residual_img_path, "rb") as image_file:
-            encoded_residual = base64.b64encode(image_file.read()).decode()
-        residual_img = html.Img(
-            src="data:image/png;base64," + encoded_residual,
-            ##       style={"width": "100%", "maxWidth": "500px", "margin": "40px"},
-            alt="Gráfico Residual",
+        # Predicciones sobre test
+        pred = predict_model(model_trained, data=test_df)
+        y_true = pred["productos_vendidos"].values
+        y_pred = pred["prediction_label"].values
+
+        # Calcular métricas
+        mae = mean_absolute_error(y_true, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+        r2 = r2_score(y_true, y_pred)
+
+        # KPIs como tarjetas
+        kpi_cards = dbc.Row(
+            [
+                dbc.Col(
+                    dbc.Card(
+                        dbc.CardBody(
+                            [
+                                html.H5("MAE", className="card-title"),
+                                html.P("Error Absoluto Medio", className="card-text", style={"fontSize": "12px"}),
+                                html.H3(f"{mae:.2f}", className="card-text"),
+                            ]
+                        ),
+                        color="primary",
+                        inverse=True,
+                    ),
+                    width=4,
+                ),
+                dbc.Col(
+                    dbc.Card(
+                        dbc.CardBody(
+                            [
+                                html.H5("RMSE", className="card-title"),
+                                html.P("Raíz del Error Cuadrático Medio", className="card-text", style={"fontSize": "12px"}),
+                                html.H3(f"{rmse:.2f}", className="card-text"),
+                            ]
+                        ),
+                        color="warning",
+                        inverse=True,
+                    ),
+                    width=4,
+                ),
+                dbc.Col(
+                    dbc.Card(
+                        dbc.CardBody(
+                            [
+                                html.H5("R²", className="card-title"),
+                                html.P("Coeficiente de Determinación", className="card-text", style={"fontSize": "12px"}),
+                                html.H3(f"{r2:.3f}", className="card-text"),
+                            ]
+                        ),
+                        color="success",
+                        inverse=True,
+                    ),
+                    width=4,
+                ),
+            ],
+            className="mb-4",
+            justify="center",
         )
-        os.remove(residual_img_path)
-    else:
-        residual_img = html.Div("No se pudo generar el gráfico residual.")
 
-    combined_graphs = html.Div(
-        [importancia_img, residual_img],
-        style={"display": "flex", "justifyContent": "center"},
-    )
+        # Importancia de variables
+        try:
+            plot_model(model_trained, plot="feature", save=True)
+            feature_img_path = "Feature Importance.png"
+            if os.path.exists(feature_img_path):
+                with open(feature_img_path, "rb") as f:
+                    encoded_feature = base64.b64encode(f.read()).decode()
+                importancia_img = html.Img(
+                    src="data:image/png;base64," + encoded_feature,
+                    style={"width": "45%", "maxWidth": "400px", "margin": "10px"},
+                    alt="Importancia Variables",
+                )
+                os.remove(feature_img_path)
+            else:
+                importancia_img = html.Div("No se pudo generar gráfico de importancia.")
+        except:
+            importancia_img = html.Div("No se pudo generar gráfico de importancia.")
 
-    pred["order_date"] = test_df["order_purchase_timestamp"].dt.date.values
-    pred_grouped = (
-        pred.groupby("order_date")[["payment_value", "prediction_label"]]
-        .sum()
-        .reset_index()
-    )
-    fig_pred = px.line(
-        pred_grouped,
-        x="order_date",
-        y=["payment_value", "prediction_label"],
-        labels={"value": "Valor", "order_date": "Fecha"},
-        title=f"Valores Reales vs Predichos - Mes {ultimo_mes.strftime('%Y-%m')}",
-        markers=True,
-    )
+        # Gráfico residual
+        try:
+            plot_model(model_trained, plot="residuals", save=True)
+            residual_img_path = "Residuals.png"
+            if os.path.exists(residual_img_path):
+                with open(residual_img_path, "rb") as image_file:
+                    encoded_residual = base64.b64encode(image_file.read()).decode()
+                residual_img = html.Img(
+                    src="data:image/png;base64," + encoded_residual,
+                    style={"width": "45%", "maxWidth": "400px", "margin": "10px"},
+                    alt="Gráfico Residual",
+                )
+                os.remove(residual_img_path)
+            else:
+                residual_img = html.Div("No se pudo generar el gráfico residual.")
+        except:
+            residual_img = html.Div("No se pudo generar el gráfico residual.")
 
-    return (
-        kpi_cards,
-        combined_graphs,
-        dcc.Graph(figure=fig_pred),
-    )
+        combined_graphs = html.Div(
+            [importancia_img, residual_img],
+            style={"display": "flex", "justifyContent": "center", "flexWrap": "wrap"},
+        )
 
+        # Preparar datos para gráfico de predicciones vs reales
+        # Agregar fechas si están disponibles
+        if "order_date" in test_df.columns:
+            pred["order_date"] = test_df["order_date"].values
+            x_axis = "order_date"
+            x_label = "Fecha"
+        else:
+            pred["day_index"] = range(len(pred))
+            x_axis = "day_index"
+            x_label = "Día"
+        
+        # Crear gráfico de predicciones vs reales
+        fig_pred = px.line(
+            pred,
+            x=x_axis,
+            y=["productos_vendidos", "prediction_label"],
+            labels={"value": "Productos Vendidos", x_axis: x_label},
+            title="Productos Vendidos: Valores Reales vs Predichos",
+            markers=True,
+            color_discrete_map={
+                "productos_vendidos": "blue",
+                "prediction_label": "red"
+            }
+        )
+        
+        # Personalizar la leyenda
+        fig_pred.for_each_trace(
+            lambda trace: trace.update(
+                name="Real" if trace.name == "productos_vendidos" else "Predicho"
+            )
+        )
+        
+        fig_pred.update_layout(
+            xaxis_title=x_label,
+            yaxis_title="Productos Vendidos",
+            legend_title="Tipo"
+        )
+
+        return (
+            kpi_cards,
+            combined_graphs,
+            dcc.Graph(figure=fig_pred),
+        )
+    
+    except Exception as e:
+        return (
+            f"Error al entrenar el modelo: {str(e)}",
+            "",
+            "",
+        )
 
 if __name__ == "__main__":
     app.run(debug=True)

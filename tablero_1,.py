@@ -455,7 +455,7 @@ def actualizar_graficos(productos, fecha_inicio, fecha_fin):
     else:
         dias_fig = px.bar(title="No hay datos para mostrar")
 
-    # Gráfico de ventas en el tiempo (modificado)
+    # Gráfico de ventas en el tiempo (MODIFICADO CON NUEVA PALETA)
     if not df_filtrado.empty:
         # Agrupar por mes y categoría de producto para obtener las ventas
         ventas_tiempo = df_filtrado.groupby(["order_month", "product_category_name_english"]).agg({
@@ -469,11 +469,12 @@ def actualizar_graficos(productos, fecha_inicio, fecha_fin):
             color="product_category_name_english",
             title="Ventas por Producto en el Tiempo",
             labels={"order_month": "Mes", "payment_value": "Ventas ($)", "product_category_name_english": "Categoría"},
-            markers=True
+            markers=True,
+            color_discrete_sequence=px.colors.qualitative.Set3  # NUEVA PALETA DE COLORES
         )
         pedidos_fig.update_layout(
             xaxis_title="Mes",
-            yaxis_title="Ventas ($)",
+            yaxis_title="Cantidad Vendida ($)",
             legend_title="Categoría de Producto"
         )
     else:
@@ -619,7 +620,7 @@ def entrenar_modelos(n_clicks, vars_predictoras, modelo):
         with open(residual_img_path, "rb") as image_file:
             encoded_residual = base64.b64encode(image_file.read()).decode()
         residual_img = html.Img(
-            src="data:image/png;base64," + encoded_residual,
+            src="data:image/png;base64+" + encoded_residual,
             ##       style={"width": "100%", "maxWidth": "500px", "margin": "40px"},
             alt="Gráfico Residual",
         )
