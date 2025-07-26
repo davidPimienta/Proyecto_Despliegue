@@ -4295,3 +4295,19 @@ X does not have valid feature names, but RandomForestRegressor was fitted with f
 2025-07-12 22:58:42,200:INFO:Saving 'Residuals.png'
 2025-07-12 22:58:42,636:INFO:Visual Rendered Successfully
 2025-07-12 22:58:42,740:INFO:plot_model() successfully completed......................................
+2025-07-19 16:13:03,710:WARNING:
+'cuml' is a soft dependency and not included in the pycaret installation. Please run: `pip install cuml` to install.
+2025-07-19 16:13:03,710:WARNING:
+'cuml' is a soft dependency and not included in the pycaret installation. Please run: `pip install cuml` to install.
+2025-07-19 16:13:03,710:WARNING:
+'cuml' is a soft dependency and not included in the pycaret installation. Please run: `pip install cuml` to install.
+2025-07-19 16:13:03,710:WARNING:
+'cuml' is a soft dependency and not included in the pycaret installation. Please run: `pip install cuml` to install.
+2025-07-19 16:13:09,826:WARNING:
+'cuml' is a soft dependency and not included in the pycaret installation. Please run: `pip install cuml` to install.
+2025-07-19 16:13:09,826:WARNING:
+'cuml' is a soft dependency and not included in the pycaret installation. Please run: `pip install cuml` to install.
+2025-07-19 16:13:09,826:WARNING:
+'cuml' is a soft dependency and not included in the pycaret installation. Please run: `pip install cuml` to install.
+2025-07-19 16:13:09,826:WARNING:
+'cuml' is a soft dependency and not included in the pycaret installation. Please run: `pip install cuml` to install.
